@@ -1,5 +1,5 @@
 ---
-title: "Optimized Regression Discontinuity Application"
+title: "Optimized Regression Discontinuity Application: the effect of national institutions over local development"
 author: "Nicolas Suarez"
 date: "5/23/2021"
 output: html_document
