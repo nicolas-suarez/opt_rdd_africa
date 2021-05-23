@@ -1,0 +1,39 @@
+---
+title: "Optimized Regression Discontinuity Application"
+author: "Nicolas Suarez"
+date: "5/23/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Setting environment
+``` {r, warning=FALSE, message=FALSE}
+library(foreign)
+library(sf)
+library(tidyverse)
+```
+
+# Data sources
+
+The  ...[Stelios Michalopoulos' website](https://drive.google.com/file/d/1UZzwCmT7RZ7JCSx-NXAfu_-n5i6xkjRr/view?usp=sharing)
+
+I obtained the shapefiles for the ethnic tribes from [Nathan Nunn's website](https://scholar.harvard.edu/files/nunn/files/murdock_shapefile.zip)
+
+
+## Importing files
+
+``` {r,message=FALSE,warning=FALSE, cache = TRUE}
+#original Stata replication file with pixel id for the grid
+dataset = read.dta("pix_ready.dta")
+#shapefile for the Murdock 
+tribe_borders = st_read("tribes/borders_tribes.shp") %>% st_transform(3857)
+grid = st_read("grid/pixels_africa.shp")  %>% st_transform(3857)
+grid = grid[,c("FID_idspli")] %>% as.data.frame 
+
+plot(grid$geometry)
+```
+
+
