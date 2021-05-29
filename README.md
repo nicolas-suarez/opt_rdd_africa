@@ -1,5 +1,4 @@
-# Optimized Regression Discontinuity Application: the effect of national institutions over local development
-# (WORK IN PROGRESS)
+# Optimized Regression Discontinuity Application: the effect of national institutions over local development (WORK IN PROGRESS)
 
 # Description
 This is my final project for **Stanford's ECON 293: Machine Learning and Causal Inference** for the Spring 2021 quarter.
