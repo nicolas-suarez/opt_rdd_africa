@@ -9,11 +9,6 @@ We can use a Geographical regression discontinuity design (as the authors do in 
 
 The authors use 3rd and 4th degree RD polynomials, define the bandwidth of their RD design in arbitrary ways, and there are some pixels were the distance to the border is not computed properly, so to overcome those flaws and check how robust their findings are, I plan to use the [optrdd package](https://github.com/swager/optrdd) from [Imbens, G., & Wager, S. (2019). Optimized regression discontinuity designs. Review of Economics and Statistics, 101(2), 264-278.](https://arxiv.org/pdf/1705.01677.pdf) to estimate an Optimized Regression Discontinuity model, a data-driven model that doesn't rely on polynomial or bandwidth definition. 
 
-
-
-
-
-
 ## Setting environment
 ```R
 library(foreign)
@@ -94,4 +89,87 @@ table(dataset[dataset$name=="BIDEYAT",c("wbcode")])
  | Egypt | Sudan | Chad |
  |:-------------:|:-------------:|:-------------:|
  |45 | 598 | 38 |
+ 
+ We can see that we have 598 pixels in Sudan, but only 38 pixels in Chad, and we even have 45 pixels in Egypt, a country that should not be considered here given the approach of the authors. The imbalance present here could be quite problematic, because we have relatively very little pixels in Chad compared to Sudan, and also because the pixels in Chad are not very close to the border, so a regression discontinuity analysis is not going to produce interesting results here.
+
+## Fixing the dataset
+Given the previous problem, before estimating causal effects, I'm going to fix some issues with the dataset, but at the same time I will try to generate a comparable dataset:
+
+- I'm going to compute nightlights (average of the DMSP OLS for the years 2007 and 2008) and population density (Population density in 2000) for the whole grid.
+- I will re-compute distance to the border, so we can have a benchmark result with distance to the border fixed. I will do this only for the tribes that the authors use, and for each tribe, I will consider the same countries as the authors. We could compare all the partitions within a tribe if there are more than 2 countries in a tribe, but to keep things comparable we are not going to do that.
+
+## Adding nightlights, population density, and modifying countries
+```R
+#adding to the grid information about population density, night lights, country and tribe
+grid=merge(as.data.frame(grid),read.csv("full_grid.csv"),by="FID_idspli") %>% st_as_sf
+#combining the shapes of Sudan and South Sudan (to match the paper)
+africa[africa$ISO3_CODE=="SDN",6] <- st_union( africa[africa$ISO3_CODE=="SDN",6], africa[africa$ISO3_CODE=="SSD",6] )
+africa= africa[africa$ISO3_CODE!="SSD", ]
+#changing the ISO3 code of the Democratic Republic of Congo (to match the paper)
+africa[africa$ISO3_CODE == "COD",c("ISO3_CODE")] <- "ZAR"
+```
+
+## Selecting the sample used by the authors
+As we mentioned before, we will work only with the sample selected by the authors. We will do this to get the list of tribes they used, and to see what countries they considered to be the 2 biggest within each tribe.
+
+I use the `d2im76` variable to do this, a dummy variable for the Hamama tribe that the authors use to restrict their sample in their replication files.
+```R
+#defining the main sample (using the same criteria as the authors)
+main_sample=dataset[!is.na(dataset$d2im76),]
+```
+
+## Computing the true distance to the border
+To compute the true distance to the border, I will retrieve a list of all the tribes considered in the `main_sample` dataset, for each tribe I will see which countries are considered as  the 2 main countries present there, intersect the shapes to get the common border within the tribe territory, and then compute the distance to the border for every pixel.
+
+```R
+#empty variable to store distance to the border
+grid$bdist= NA
+
+#generating list of tribes to be studied
+list_tribes=unique(main_sample$name)
+
+#computing distance to the border for each tribe
+for (i in list_tribes) {
+  #recovering the countries located in the tribe
+  list_countries=unique(main_sample[main_sample$name==i,c("wbcode")])
+  #getting shapes of countries
+  country_shapes <- africa[africa$ISO3_CODE %in% list_countries,6]
+  #computing common border of countries (buffering borders by 500 meters to get the correct shape)
+  common_border <- st_intersection(st_buffer(country_shapes[1,],500),st_buffer(country_shapes[2,],500))
+  #intersecting common border with the shape of the tribe
+  common_border <- st_intersection(common_border, tribe_borders[tribe_borders$NAME==i,5])
+  #computing distance to the border (in kilometers)
+  grid[grid$name==i,c("bdist")]= st_distance(grid[grid$name==i,c("geometry")],common_border)/1000
+}
+```
+
+## Visualizing the new distance to the border
+Now we are going to visualize again the distance to the border for the pixels in the Bideyat tribe.
+
+```R
+par(xpd=TRUE)
+#country and tribe borders
+plot( st_intersection(africa[africa$ISO3_CODE %in%  c("TCD","EGY","SDN","LBY"),6],
+                      tribe_borders[tribe_borders$NAME=="BIDEYAT",5]),
+      lwd=2, main="Distance to the border for pixels of the Bideyat tribe")
+#Sudan and Chat terrain within the Bideyat territory
+base_terrain=st_intersection(africa[africa$ISO3_CODE %in% c("TCD","SDN"),6],tribe_borders[tribe_borders$NAME=="BIDEYAT",5])
+plot(base_terrain,col="azure3",add=T)
+#outlining tribe border
+plot(tribe_borders[tribe_borders$NAME=="BIDEYAT",5],border="blue",lwd=2,add=T)
+#pixels with distance to the border
+plot(st_intersection(grid[grid$name=="BIDEYAT",c("bdist")],base_terrain),add=T)
+#Sudan and Chad borderline
+common_border=st_intersection(st_buffer(africa[africa$ISO3_CODE=="SDN",6],500),
+                              st_buffer(africa[africa$ISO3_CODE=="TCD",6],500))
+plot(st_intersection(tribe_borders[tribe_borders$NAME=="BIDEYAT",5],common_border), border="red",lwd=4,add=T)
+#adding legend
+legend("bottomright",, legend=c("Bideyat border","National borders","SDN-TCD border", "SDN-TCD territory"),
+       col=c("blue","black","red","azure3"),pch=15,inset = c(-0.05, 0) )
+```
+<p align="center">
+  <img src="markdown_files/figure-html/unnamed-chunk-8-1.png" />
+</p>
+
+We can see that the distance to the border (blue pixels are the closest, and yellow are the most far away) seems correctly calculated.
 
