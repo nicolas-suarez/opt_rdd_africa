@@ -81,5 +81,17 @@ plot(st_intersection(tribe_borders[tribe_borders$NAME=="BIDEYAT",5],common_borde
 legend("bottomright",, legend=c("Bideyat border","National borders","SDN-TCD border", "SDN-TCD territory"),
        col=c("blue","black","red","azure3"),pch=15,inset = c(-0.05, 0) )
 ```
-![](markdown_files/figure-html/unnamed-chunk-3-1.png)
+<p align="center">
+  <img src="markdown_files/figure-html/unnamed-chunk-3-1.png" />
+</p>
+
+Here we can observe that distance to the border is clearly calculated in the wrong way: we have around 10 pixels at the top of Sudan, in the frontier with Egypt, that are marked to be less than 50 km to the border between Sudan and Chad, but they are around 200 kilometers away from the mentioned border. Their distance to the border was very likely computed around the wrong border.
+
+Another problem present in this dataset is that there are a lot of missing pixels: in our previous figure we can see a lot of areas with very little pixels. The authors decided to omit pixels in areas that were not inhabited. We can check how many pixels we have per pixel in the Bideyat territory:
+```R
+table(dataset[dataset$name=="BIDEYAT",c("wbcode")])
+```
+ | Egypt | Sudan | Chad |
+ |:-------------:|:-------------:|:-------------:|
+ |45 | 598 | 38 |
 
