@@ -1,6 +1,6 @@
 # Optimized Regression Discontinuity Application: the effect of national institutions over local development
 
-# Description
+## Description
 This is my final project for **Stanford's ECON 293: Machine Learning and Causal Inference** for the Spring 2021 quarter. The code used for this project (in RMarkDown) can be found [here](https://github.com/nicolas-suarez/opt_rdd_africa/blob/main/markdown.md) and a write up explaining the project more in detail is available [here](https://github.com/nicolas-suarez/opt_rdd_africa/blob/main/write-up.pdf).
 
 In this project revisit the findings of [Michalopoulos, S., & Papaioannou, E. (2014). National institutions and subnational development in Africa. The Quarterly journal of economics, 129(1), 151-213.](https://academic.oup.com/qje/article-abstract/129/1/151/1897929?redirectedFrom=fulltext). In the mentioned article, the authors explore the role of national institutions on local development levels for in Africa. They exploit the fact that the national boundaries of African countries drawn during their independence partitioned more than 200 ethnic groups across adjacent countries, so within the territory of an ethnic group we have individuals subjected to similar cultures, residing in homogeneous geographic areas, but that are exposed to different national institutions.
@@ -9,167 +9,86 @@ We can use a Geographical regression discontinuity design (as the authors do in 
 
 The authors use 3rd and 4th degree RD polynomials, define the bandwidth of their RD design in arbitrary ways, and there are some pixels were the distance to the border is not computed properly, so to overcome those flaws and check how robust their findings are, I plan to use the [optrdd package](https://github.com/swager/optrdd) from [Imbens, G., & Wager, S. (2019). Optimized regression discontinuity designs. Review of Economics and Statistics, 101(2), 264-278.](https://arxiv.org/pdf/1705.01677.pdf) to estimate an Optimized Regression Discontinuity model, a data-driven model that doesn't rely on polynomial or bandwidth definition. 
 
-## Setting environment
-```R
-library(foreign)
-library(sf)
-library(dplyr)
-library(giscoR)
-library(rmapshaper)
-```
+## Empirical design
 
-# Data sources
+Before diving into the issues with the dataset, I will first explain the empirical design for this project. Here, our unit of analysis are patches of 12.6 by 12.6 km of land in Africa. Our dependent variable is a dummy indicating if a pixel is lit or not, according to 2007-2008 satellite night lights measures. Our treatment variable is a dummy indicating if a pixel is on the side of the ethnic tribe territory with higher national institutions (measured as either Rule of Law or Control of Corruption).
+
+Besides that main variables, the authors also control for population density in their original article, and they also have information about the country and tribe where a pixel is located, and some information related to its geography, like elevation, presence of water, a malaria index, and similar stuff.
+
+## Data sources
 
 I obtained the original pixel-level dataset from [Stelios Michalopoulos' website](https://drive.google.com/file/d/1UZzwCmT7RZ7JCSx-NXAfu_-n5i6xkjRr/view?usp=sharing). I obtained the shapefiles for the ethnic tribes from [Nathan Nunn's website](https://scholar.harvard.edu/files/nunn/files/murdock_shapefile.zip). The shapefile with the grid of pixels covering Africa was provided directly by Stelios Michalopoulos.
 
-
-## Importing files
-
-```R
-#M & P (2014) original Stata replication file with pixel id for the grid
-dataset = read.dta("pix_ready.dta")
-#shapefile for the Murdock ethnic tribes
-tribe_borders = st_read("tribes/borders_tribes.shp") %>% st_transform(3857)
-# M & P (2014) grid of pixels for Africa
-grid = st_read("grid/pixels_africa.shp")  %>% st_transform(3857)
-grid = grid[,c("FID_idspli")]
-
-#getting maps of Africa from GISCO (Geographic Information System of the COmmission) from Eurostat
-africa <- gisco_get_countries(region = "Africa", resolution = 10) %>% st_transform(3857)
-
-#getting GADM maps of Sudan and Egypt, so our Africa map contains the Halaib Triangle 
-#(disputed zone between Sudan and Egypt)
-#we simplify the maps to keep 0.15% of the points
-sudan <- readRDS(gzcon(url("https://biogeo.ucdavis.edu/data/gadm3.6/Rsf/gadm36_SDN_0_sf.rds"))) %>% ms_simplify(keep=0.0015) %>% st_transform(3857)
-egypt  <- readRDS(gzcon(url("https://biogeo.ucdavis.edu/data/gadm3.6/Rsf/gadm36_EGY_0_sf.rds")))%>% ms_simplify(keep=0.0015) %>% st_transform(3857)
-
-#adding the maps of Sudan and Egypt to the map of Africa
-africa[africa$ISO3_CODE=="SDN",6] <- sudan[,3]
-africa[africa$ISO3_CODE=="EGY",6] <- egypt[,3]
-
-# combining original dataset with grid
-dataset=merge(dataset,as.data.frame(grid),by="FID_idspli")
-dataset_sf=st_as_sf(dataset)
-```
 ## Problems with the current data
-In the current data, there are some problems with how the distance to the border is calculated. We can illustrate this with the Bideyat tribe, located in the border shared among Egypt, Sudan, Chad and Libya. Most of the pixels are in Sudan and Chad, so the authors considered only those 2 countries for their analysis.
+In the current dataset downloaded from the authors website, there are some problems with how the distance to the border is calculated, and they are also missing a lot of pixels, since they discarded all uninhabited pixels. We can illustrate these problems by looking at the Bideyat tribe, located in the border shared among Egypt, Sudan, Chad and Libya. Most of the pixels are in Sudan and Chad, so the authors considered only those 2 countries for their analysis.
 
-Here we are going to plot the distance to the border for the pixels in Chad (left) and Sudan (right):
-```R
-par(xpd=TRUE)
-#country and tribe borders
-plot( st_intersection(africa[africa$ISO3_CODE %in%  c("TCD","EGY","SDN","LBY"),6],
-                      tribe_borders[tribe_borders$NAME=="BIDEYAT",5]),
-                      lwd=2, main="Distance to the border for pixels of the Bideyat tribe")
-#Sudan and Chat terrain within the Bideyat territory
-base_terrain=st_intersection(africa[africa$ISO3_CODE %in% c("TCD","SDN"),6],tribe_borders[tribe_borders$NAME=="BIDEYAT",5])
-plot(base_terrain,col="azure3",add=T)
-#outlining tribe border
-plot(tribe_borders[tribe_borders$NAME=="BIDEYAT",5],border="blue",lwd=2,add=T)
-#pixels with distance to the border
-plot(st_intersection(dataset_sf[dataset_sf$name=="BIDEYAT",c("bdist")],base_terrain),add=T)
-#Sudan and Chad borderline
-common_border=st_intersection(st_buffer(africa[africa$ISO3_CODE=="SDN",6],500),
-                              st_buffer(africa[africa$ISO3_CODE=="TCD",6],500))
-plot(st_intersection(tribe_borders[tribe_borders$NAME=="BIDEYAT",5],common_border), border="red",lwd=4,add=T)
-#adding legend
-legend("bottomright",, legend=c("Bideyat border","National borders","SDN-TCD border", "SDN-TCD territory"),
-       col=c("blue","black","red","azure3"),pch=15,inset = c(-0.05, 0) )
-```
-<p align="center">
-  <img src="markdown_files/figure-html/unnamed-chunk-3-1.png" />
-</p>
+In following figure we are going to plot the distance to the border for the pixels in Chad (left) and Sudan (right), where blue pixels are the closest, and yellow are the farthest from the national border. Here we can observe that the distance to the border is clearly calculated in the wrong way: we have around 10 pixels at the top of Sudan, in the frontier with Egypt, that are marked to be less than 50 km to the border between Sudan and Chad, but they are around 200 kilometers away from the mentioned border. Their distance to the border was very likely computed around the wrong border.
 
-Here we can observe that distance to the border is clearly calculated in the wrong way: we have around 10 pixels at the top of Sudan, in the frontier with Egypt, that are marked to be less than 50 km to the border between Sudan and Chad, but they are around 200 kilometers away from the mentioned border. Their distance to the border was very likely computed around the wrong border.
+![](markdown_files/figure-gfm/unnamed-chunk-3-1.png)<!-- -->
 
-Another problem present in this dataset is that there are a lot of missing pixels: in our previous figure we can see a lot of areas with very little pixels. The authors decided to omit pixels in areas that were not inhabited. We can check how many pixels we have per pixel in the Bideyat territory:
-```R
-table(dataset[dataset$name=="BIDEYAT",c("wbcode")])
-```
- | Egypt | Sudan | Chad |
- |:-------------:|:-------------:|:-------------:|
- |45 | 598 | 38 |
- 
- We can see that we have 598 pixels in Sudan, but only 38 pixels in Chad, and we even have 45 pixels in Egypt, a country that should not be considered here given the approach of the authors. The imbalance present here could be quite problematic, because we have relatively very little pixels in Chad compared to Sudan, and also because the pixels in Chad are not very close to the border, so a regression discontinuity analysis is not going to produce interesting results here.
+As mentioned before, another problem present in this dataset is that there are a lot of missing pixels: in our previous figure we can see a lot of areas with very little pixels. If we check how many pixels we have per country in the Bideyat territory: there are 598 pixels in Sudan, but only 38 pixels in Chad, and we even have 45 pixels in Egypt, a country that should not be considered here given the approach of the authors.
 
-## Fixing the dataset
-Given the previous problem, before estimating causal effects, I'm going to fix some issues with the dataset, but at the same time I will try to generate a comparable dataset:
+The imbalance present here could be quite problematic, because we have relatively very little pixels in Chad compared to Sudan, and also because the pixels in Chad are not very close to the border, so a regression discontinuity analysis is not going to produce interesting results here. 
 
-- I'm going to compute nightlights (average of the DMSP OLS for the years 2007 and 2008) and population density (Population density in 2000) for the whole grid.
-- I will re-compute distance to the border, so we can have a benchmark result with distance to the border fixed. I will do this only for the tribes that the authors use, and for each tribe, I will consider the same countries as the authors. We could compare all the partitions within a tribe if there are more than 2 countries in a tribe, but to keep things comparable we are not going to do that.
 
-## Adding nightlights, population density, and modifying countries
-```R
-#adding to the grid information about population density, night lights, country and tribe
-grid=merge(as.data.frame(grid),read.csv("full_grid.csv"),by="FID_idspli") %>% st_as_sf
-#combining the shapes of Sudan and South Sudan (to match the paper)
-africa[africa$ISO3_CODE=="SDN",6] <- st_union( africa[africa$ISO3_CODE=="SDN",6], africa[africa$ISO3_CODE=="SSD",6] )
-africa= africa[africa$ISO3_CODE!="SSD", ]
-#changing the ISO3 code of the Democratic Republic of Congo (to match the paper)
-africa[africa$ISO3_CODE == "COD",c("ISO3_CODE")] <- "ZAR"
-```
+## Replicating and fixing the dataset
+Given the previous problems, before trying to estimate causal effects, I'm going to rebuild from scratch the dataset, fixing some issues and expanding the number of units in our sample. I will do the following:
 
-## Selecting the sample used by the authors
-As we mentioned before, we will work only with the sample selected by the authors. We will do this to get the list of tribes they used, and to see what countries they considered to be the 2 biggest within each tribe.
+1. I'm going to start by loading the original grid of pixels for Africa.
+2. To that grid I will add information about nightlights (average of the DMSP OLS for the years 2007 and 2008) and population density (Population density in 2000).
+3. After that, I will also used GIS methods to identify in which country and tribe is every pixel located.
+4. With that information, and to use a similar sample to the original one, for each partitioned tribe, I will compute the distance to the national border. To follow Michalopoulos & Papaioannou (2014), I will only consider the two biggest countries in term of area inside a tribe if there are more than 2 countries in the partitioned territory.
+5. Finally, using the country and tribe names, I will recover the Rule of Law and Control of Corruption treatment variables from the original dataset, as well as the clustering variable (variable used by the authors and defined in the original ethnographic Atlas of Murdock that groups similar tribes into bigger groups).
 
-I use the `d2im76` variable to do this, a dummy variable for the Hamama tribe that the authors use to restrict their sample in their replication files.
-```R
-#defining the main sample (using the same criteria as the authors)
-main_sample=dataset[!is.na(dataset$d2im76),]
-```
+With this procedure we pass from an original sample with 40,209 observations, to a new sample with valid information for 55,055 observations. To check that we did everything properly when rebuilding the dataset, in next figure we can see again the distance to the border for the Bideyat tribe, but for the new dataset. We can see that we have data for all pixels in both Chad and Sudan, and that the distance to the border is now computed with respect to the right border.
 
-## Computing the true distance to the border
-To compute the true distance to the border, I will retrieve a list of all the tribes considered in the `main_sample` dataset, for each tribe I will see which countries are considered as  the 2 main countries present there, intersect the shapes to get the common border within the tribe territory, and then compute the distance to the border for every pixel.
+![](markdown_files/figure-gfm/unnamed-chunk-8-1.png)<!-- -->
 
-```R
-#empty variable to store distance to the border
-grid$bdist= NA
+## Comparing the different samples
 
-#generating list of tribes to be studied
-list_tribes=unique(main_sample$name)
+I also replicate the original results of estimating equation (3) of Michalopoulos & Papaioannou (2014), that are displayed in their Table VI. To keep things short, those results are only available in the write-up and the knitted version of the RMarkDown code.
 
-#computing distance to the border for each tribe
-for (i in list_tribes) {
-  #recovering the countries located in the tribe
-  list_countries=unique(main_sample[main_sample$name==i,c("wbcode")])
-  #getting shapes of countries
-  country_shapes <- africa[africa$ISO3_CODE %in% list_countries,6]
-  #computing common border of countries (buffering borders by 500 meters to get the correct shape)
-  common_border <- st_intersection(st_buffer(country_shapes[1,],500),st_buffer(country_shapes[2,],500))
-  #intersecting common border with the shape of the tribe
-  common_border <- st_intersection(common_border, tribe_borders[tribe_borders$NAME==i,5])
-  #computing distance to the border (in kilometers)
-  grid[grid$name==i,c("bdist")]= st_distance(grid[grid$name==i,c("geometry")],common_border)/1000
-}
-```
+# Univariate Optimized RDD
 
-## Visualizing the new distance to the border
-Now we are going to visualize again the distance to the border for the pixels in the Bideyat tribe.
+Now that we checked that our new sample is almost identical to the original sample, we can use our optimized RDD methodology on it. In this section I will use the univariate version of the optimized RDD method, estimating a model where the univariate running variable is the distance of the pixels to the national border. We previously computed the distance to the border, and I now modified that variable so the distance is negative for the pixels on the side of the border with lower Rule of Law or Control of Corruption.An advantage of doing this analysis first is that since we use the same running variable as the original paper, we should obtain comparable results, or at least more similar results than when we change to a multivariate running variable.
 
-```R
-par(xpd=TRUE)
-#country and tribe borders
-plot( st_intersection(africa[africa$ISO3_CODE %in%  c("TCD","EGY","SDN","LBY"),6],
-                      tribe_borders[tribe_borders$NAME=="BIDEYAT",5]),
-      lwd=2, main="Distance to the border for pixels of the Bideyat tribe")
-#Sudan and Chat terrain within the Bideyat territory
-base_terrain=st_intersection(africa[africa$ISO3_CODE %in% c("TCD","SDN"),6],tribe_borders[tribe_borders$NAME=="BIDEYAT",5])
-plot(base_terrain,col="azure3",add=T)
-#outlining tribe border
-plot(tribe_borders[tribe_borders$NAME=="BIDEYAT",5],border="blue",lwd=2,add=T)
-#pixels with distance to the border
-plot(st_intersection(grid[grid$name=="BIDEYAT",c("bdist")],base_terrain),add=T)
-#Sudan and Chad borderline
-common_border=st_intersection(st_buffer(africa[africa$ISO3_CODE=="SDN",6],500),
-                              st_buffer(africa[africa$ISO3_CODE=="TCD",6],500))
-plot(st_intersection(tribe_borders[tribe_borders$NAME=="BIDEYAT",5],common_border), border="red",lwd=4,add=T)
-#adding legend
-legend("bottomright",, legend=c("Bideyat border","National borders","SDN-TCD border", "SDN-TCD territory"),
-       col=c("blue","black","red","azure3"),pch=15,inset = c(-0.05, 0) )
-```
-<p align="center">
-  <img src="markdown_files/figure-html/unnamed-chunk-8-1.png" />
-</p>
+To compute the curvature bound $B$ in this univariate case, we will follow Imbens and Wager (2019) and fit a global quadratic model for both treated and control samples. We get the absolute values of the coefficients, and then we keep as our curvature bound the maximum between the 2 quadratic coefficients. In this application there might be significant heterogeneity in the curvature between tribes, so I will also estimate the curvature within every tribe. I will discard the `NA` and `0` values obtained for the curvature bound, and then these values are going to be used for a sensitivity analysis. Specifically, for each treatment variable (high Rule of Law or high Control of Corruption) I will estimate the effect of institutions over local development using distance to the border as my running variable, and using the `optrdd` package. I set the estimation point at 0 (the national border within every tribe). I will do this for 50 values of our curvature bound $B$, ranging from the minimum to the maximum of the within tribe curvatures computed with the global quadratic model. For each model, besides recovering the treatment effect, we also obtain a 95% confidence interval.
 
-We can see that the distance to the border (blue pixels are the closest, and yellow are the most far away) seems correctly calculated.
+In the 2 next figures we can see the results of these sensitivity analysis: we can notice that for both of our institutional quality treatment variables the confidence intervals contain 0, so neither of them is statistically significant for most of the values of $B$.
 
+![](markdown_files/figure-gfm/unnamed-chunk-17-1.png)<!-- -->
+
+![](markdown_files/figure-gfm/unnamed-chunk-17-2.png)<!-- -->
+
+We can also plot our weights to see how they look for a particular tribe (given the number of tribes, looking at all the tribes simultaneously is not feasible). To do this, I will estimate the model using the Rule of Law treatment variable, and for the curvature bound $B$ I use the curvature obtained when we use the global fit model for all the sample. In the following figure we can see the weights for the Azjer tribe, and we can notice that the weights for this tribe look a little weird. For the pixels in Libya there is a clear gradient, and the biggest weights are towards the border, whereas the weights in Algeria look weird, giving a lot of weight to pixels in the center of the partition, but not in the border.
+
+![](markdown_files/figure-gfm/unnamed-chunk-19-1.png)<!-- -->
+
+# Multivariate Optimized RDD
+Now we will proceed to estimate a multivariate optimized RDD. We are going to estimate constant treatment effects, and we will use the latitude and longitude of the centroids of the pixels as the running variables.
+
+To estimate the curvature bound $B$, I'm going to follow the code from the geographic RDD example in Imbens and Wager (2019). Here I will use a slightly modified version of their  `get_curvature` function, used to ran a cross-validated ridge regression with interacted 7th-order natural splines as features in each side of the border, and then use this to get a worst-case local curvature. Here I apply the function to the whole sample for both of the treatment variables, and I don't estimate individual curvatures for the different tribes, since a lot of them have too little observations to produce reliable results with a technique like this.
+
+With this function, we can proceed to estimate our multivariate optimized RDD: for each treatment variable (high Rule of Law or high Control of Corruption) I will estimate the effect of institutions over local development using the latitude and longitude of my pixels as my running variables. I will do this for 20 values of our curvature bound, between $0.1B$ and $10B$, where the original curvature $B$ is computed with the `get_curvature` function separately for each of the treatment variables. For each model, besides recovering the treatment effect, we also obtain a 95% confidence interval.
+
+In the two following figures we can see the results of these sensitivity analysis: we can notice that for Rule of Law generates a positive and mostly statistically significant effect, but when our treatment is defined by Control of Corruption the effect becomes not statistically significant.
+
+![](markdown_files/figure-gfm/unnamed-chunk-22-1.png)<!-- -->
+
+![](markdown_files/figure-gfm/unnamed-chunk-22-2.png)<!-- -->
+
+Finally, we can also plot our weights to see how they look for a particular tribe. To do this, I will estimate the model using the Rule of Law treatment variable with maximum curvature $B$. In the next figure we can look again at the weights for the Azjer tribe, and in this case the pixels look a little weird, since there is not a clear gradient towards the border. I believe this is because this method might not work with multiple geographies at the same time, since there is nothing preventing the program to compare pixels among tribes and ignore the tribe borders.
+
+![](markdown_files/figure-gfm/unnamed-chunk-24-1.png)<!-- -->
+
+# Concluding remarks
+
+In this project I revisited the findings of Michalopoulos & Papaioannou (2014). I started by fixing some problems with their data, and then replicating their results with the new data to see if the replication was working properly. Using their methodology I found no statistically significant effect of institutions over local development in any of the samples.
+
+After that, I applied the Optimized Regression Discontinuity Design method with an univariate running variable, the distance to the border, using a wide range of curvature bounds $B$ derived from a within-tribe curvature analysis. Again I found no statistically significant effect.
+
+Finally, I applied the Optimized Regression Discontinuity Design method with an multivariate running variable, the latitude and longitude of pixels, and I derived the curvature bound using the non-parametric global method described in Imbens and Wager (2019). This time around I found that there is a positive and statistically significant effect of national institutions over development when we define institutions as Rule of Law, but that effect disappears when we measure institutions with Control of Corruption. These last findings are very relevant, since they challenge the previous evidence regarding this topic.
+
+However, I interpret these results with caution: I'm not fully sure of how well the multivariate running variable RDD method works here, since we are analyzing several geographical units at the same time, but the model doesn't explicitly defines in which tribe a pixel is. This could lead to comparisons of pixels among different tribes, and the optimization process could end up ignoring completely the national borders that split tribes. There is more work to be done here to adapt this method to this geographical setting with multiple units, maybe related to re-centering the coordinates of each pixel, or adding more explicit constraints into the optimization problem.
+
+Another possible point to improve is the curvature bound $B$ for the multivariate case: I ended up estimating just 1 bound, so it would be very interesting to develop methods to estimate the curvature bound in a way that it takes into account the local curvatures for each tribe.
