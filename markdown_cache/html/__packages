@@ -12,3 +12,9 @@ stringr
 forcats
 giscoR
 rmapshaper
+fixest
+optrdd
+xtable
+Matrix
+glmnet
+RColorBrewer
