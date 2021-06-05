@@ -2,7 +2,8 @@
 title: "Optimized Regression Discontinuity Application: the effect of national institutions over local development"
 author: "Nicolas Suarez"
 date: "5/23/2021"
-output: html_document
+#output: html_document
+output: rmarkdown::github_document
 ---
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
